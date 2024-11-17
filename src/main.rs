@@ -1,11 +1,14 @@
 use std::{io::BufRead, usize};
 use std::cmp::max;
+use full_palette::ORANGE_A400;
 use rand::Rng;
 use rayon::prelude::*;
 use diam::join;
 use indicatif;
 use image;
 use noise::{NoiseFn, Perlin, Seedable};
+use std::fs::OpenOptions;
+use std::io::Write;
 use plotters::prelude::*;
 
 fn find_first_negative(nums: &Vec<i32>) -> i32 {
@@ -86,11 +89,14 @@ fn count_negatives_par(grid: &Vec<Vec<i32>>, segment_size: usize) -> i32 {
 }
 
 fn count_negatives_par_iter(grid: &Vec<Vec<i32>>, segment_size: usize) -> i32 {
-    grid.chunks(segment_size)
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .map(|chunk| count_negatives_seq(&chunk.to_vec()))
-        .reduce(|| 0, |a, b| a + b)
+    grid.par_chunks(segment_size)
+        .enumerate()
+        .map(|(i, segment)| {
+            let begin = i * segment_size;
+            let end = begin + segment.len();
+            count_negatives_segment(grid, begin, end)
+        })
+        .sum()
 }
 
 fn display_matrix(matrix: &Vec<Vec<i32>>) {
@@ -119,13 +125,14 @@ fn gen_matrix(rows: usize, columns: usize) -> (Vec<Vec<i32>>, i32) {
 
     // Create a noise palette
     let mut noise_palette = Vec::new();
-    let noise_levels = 8;
+    let noise_levels = 1;
     for _ in 0..noise_levels {
         let seed = rand::thread_rng().gen_range(0..1000);
         let noise = Perlin::new(seed);
         noise_palette.push(noise);
     }
 
+    println!("Generating {}x{} matrix", rows, columns);
     let pb = indicatif::ProgressBar::new((rows * columns) as u64);
 
     let update_rate = 1000;
@@ -158,6 +165,7 @@ fn gen_matrix(rows: usize, columns: usize) -> (Vec<Vec<i32>>, i32) {
     }
 
     pb.finish_with_message("Matrix generation complete");
+    println!("Matrix generation complete");
 
     let top = matrix[rows - 1][columns - 1];
     let mut count_neg = 0;
@@ -275,82 +283,144 @@ fn measure_time_count_neg_sizes(sizes: &Vec<usize>, segment_sizes: &Vec<usize>, 
         .x_label_area_size(30)
         .y_label_area_size(30)
         .build_cartesian_2d(
-            sizes[0]..*sizes.last().unwrap(),
-            0.0..0.001,
+            (sizes[0] as f64).log2()..(*sizes.last().unwrap() as f64).log2(),
+            0.0001_f64.log10()..0.01_f64.log10(),
         )
         .unwrap();
 
-    chart.configure_mesh().draw().unwrap();
+    chart.configure_mesh()
+        .x_desc("Matrix Size (log2 scale)")
+        .y_desc("Time (log scale)")
+        .x_labels(10)
+        .y_labels(10)
+        .x_label_formatter(&|x| format!("{:.0}", 2_f64.powf(*x)))
+        .y_label_formatter(&|y| format!("{:.4}", 10_f64.powf(*y)))
+        .draw()
+        .unwrap();
 
-    for &segment_size in segment_sizes {
+    for segment in segment_sizes.iter().enumerate() {
+        let (segment_idx, &segment_size) = segment;
+
         let mut times_seq = Vec::new();
         let mut times_par = Vec::new();
         let mut times_par_iter = Vec::new();
 
+        println!("\n\nSegment size: {}", segment_size);
+        let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("timings.txt")
+                .unwrap();
+
+        // Color palettes
+        let palette_par = 
+        [
+            &BLUE,
+            &CYAN,
+            &MAGENTA,
+            &RGBColor(0, 128, 255),
+            &RGBColor(128, 0, 255),
+        ];
+
+        let palette_par_iter = 
+        [
+            &GREEN,
+            &ORANGE_A400,
+            &YELLOW,
+            &RGBColor(128, 255, 0),
+            &RGBColor(255, 128, 0),
+        ];
 
         for &size in sizes {
+            println!("\nSize: {}", size);
+
             let mut avg_time_seq = 0.0;
             let mut avg_time_par = 0.0;
             let mut avg_time_par_iter = 0.0;
 
-            for _ in 0..steps {
+            for i in 0..steps {
+                println!("Step: {}/{}", i + 1, steps);
+
                 let (matrix, _) = gen_matrix(size, size);
 
-                let (time_seq, _) = measure_time(|| {
-                    count_negatives_seq(&matrix);
+                let (time_seq, res_seq) = measure_time(|| {
+                    count_negatives_seq(&matrix)
                 });
                 avg_time_seq += time_seq.as_secs_f64();
 
-                let (time_par, _) = measure_time(|| {
-                    count_negatives_par(&matrix, segment_size);
+                let (time_par, res_par) = measure_time(|| {
+                    count_negatives_par(&matrix, segment_size)
                 });
                 avg_time_par += time_par.as_secs_f64();
 
-                let (time_par_iter, _) = measure_time(|| {
-                    count_negatives_par_iter(&matrix, segment_size);
+                let (time_par_iter, res_par_iter) = measure_time(|| {
+                    count_negatives_par_iter(&matrix, segment_size)
                 });
                 avg_time_par_iter += time_par_iter.as_secs_f64();
+
+                // Check if results are correct
+                if !(res_seq == res_par && res_par == res_par_iter) {
+                    println!("Error: seq = {}, par = {}, par_iter = {}", res_seq, res_par, res_par_iter);
+                    return;
+                }
             }
 
             avg_time_seq /= steps as f64;
             avg_time_par /= steps as f64;
             avg_time_par_iter /= steps as f64;
 
-            times_seq.push((size, avg_time_seq));
-            times_par.push((size, avg_time_par));
-            times_par_iter.push((size, avg_time_par_iter));
+            println!("Size: {}, Segment size: {}, Seq: {}, Par: {}, ParIter: {}", size, segment_size, avg_time_seq, avg_time_par, avg_time_par_iter);
+            writeln!(file, "Size: {}, Segment size: {}, Seq: {}, Par: {}, ParIter: {}", size, segment_size, avg_time_seq, avg_time_par, avg_time_par_iter).unwrap();
+
+
+            times_seq.push((size as f64, avg_time_seq));
+            times_par.push((size as f64, avg_time_par));
+            times_par_iter.push((size as f64, avg_time_par_iter));
         }
 
-        chart
-            .draw_series(LineSeries::new(
-                times_seq,
-                &RED,
-            ))
-            .unwrap()
-            .label(format!("Sequential"))
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        if segment_idx == 0 {
+            chart
+                .draw_series(LineSeries::new(
+                    times_seq.into_iter().map(|(x, y)| (x.log2(), y.log10())),
+                    &RED,
+                ))
+                .unwrap()
+                .label(format!("Sequential"))
+                .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+        }
+        
 
         chart
             .draw_series(LineSeries::new(
-                times_par,
-                &BLUE,
+                times_par.into_iter().map(|(x, y)| (x.log2(), y.log10())),
+                palette_par[segment_idx],
             ))
             .unwrap()
             .label(format!("Parallel (segment size {})", segment_size))
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+            .legend({
+                let color = palette_par[segment_idx].clone();
+                move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color)
+            });
 
         chart
             .draw_series(LineSeries::new(
-                times_par_iter,
-                &GREEN,
+                times_par_iter.into_iter().map(|(x, y)| (x.log2(), y.log10())),
+                palette_par_iter[segment_idx],
             ))
             .unwrap()
             .label(format!("Parallel Iterator (segment size {})", segment_size))
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
+            .legend({
+                let color = palette_par_iter[segment_idx].clone();
+                move |(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], color)
+            });
     }
 
-    
-    chart.configure_series_labels().background_style(&WHITE.mix(0.8)).border_style(&BLACK).draw().unwrap();
+    chart.configure_series_labels()
+        .background_style(&WHITE.mix(0.8))
+        .border_style(&BLACK)
+        .position(SeriesLabelPosition::UpperLeft)
+        .draw()
+        .unwrap();
 }
 
 // How to run with rayon and specify num of threads?
@@ -358,12 +428,12 @@ fn measure_time_count_neg_sizes(sizes: &Vec<usize>, segment_sizes: &Vec<usize>, 
 
 fn main() {
 
-    // measure_time_count_neg_sizes(
-    //     &vec![500, 1000, 2000, 4000],
-    //     &vec![500],
-    //     "count-neg-plot.png",
-    //     1
-    // );
+    measure_time_count_neg_sizes(
+        &vec![1000, 2000, 4000, 8000, 16000, 32000],
+        &vec![500, 1000, 2000, 4000],
+        "count-neg-plot.png",
+        10
+    );
 
     // let matSize = 100;
     // let (gen_time, (m, sum_true)) = measure_time(|| {

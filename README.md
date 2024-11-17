@@ -84,16 +84,19 @@ The other way is using parallel iterators. Divide the matrix into chunks and cal
 
 ```rust
 fn count_negatives_par_iter(grid: &Vec<Vec<i32>>, segment_size: usize) -> i32 {
-    grid.chunks(segment_size)
-        .collect::<Vec<_>>()
-        .into_par_iter()
-        .map(|chunk| count_negatives_seq(&chunk.to_vec()))
-        .reduce(|| 0, |a, b| a + b)
+    grid.par_chunks(segment_size)
+        .enumerate()
+        .map(|(i, segment)| {
+            let begin = i * segment_size;
+            let end = begin + segment.len();
+            count_negatives_segment(grid, begin, end)
+        })
+        .sum()
 }
 ```
 
 ### Evaluation
 
-
+![](images/co)
 
 ## Bonus: generating matrix in parallel
