@@ -97,6 +97,18 @@ fn count_negatives_par_iter(grid: &Vec<Vec<i32>>, segment_size: usize) -> i32 {
 
 ### Evaluation
 
-![](images/co)
+Different implementations of algorithms were tested on set of square matricies of different sizes. Also different block sizes were used. The results are presented on the plot below.
 
-## Bonus: generating matrix in parallel
+On given plot each configuration was tested 10 times and the average time was taken.
+
+Due to the hardware limitation the maximum size of the matrix was 32000x32000. For this size the program was consuming about 4GB of RAM and the matrix generation was taking around 30 seconds.
+
+This way it is hard to measure the advantage of parallel version because The algorithm is linear in repsect to the linear size of the matrix.
+
+However it can be clearly seen that the parallel version with iterators is performing better than the one with join.
+
+![](images/count-neg-plot.png)
+
+### Matrix generation
+
+To generate a random sorted matrix perlin noize was generated following by calculating a cumulative sum of it.
