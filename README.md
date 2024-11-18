@@ -155,4 +155,20 @@ Changing the size of the block does not seem to affect the result. This may be d
 
 ### Matrix generation
 
-To generate a random sorted matrix perlin noize was generated following by calculating a cumulative sum of it.
+To generate diverse family of matricies with different features Perlin noise is used. The matrix generation occurs in 2 steps:
+1. The noise matrix is created using Perlin noise.
+2. The matrix is reduced into decreasing matrix.
+
+Perlin noise generation is done via `noise` library.
+
+Values below zero are cropped to zero.
+
+The reduction is done via formula that guarantees the increase of values:
+
+$m[i][j] = max(m[i-1][j], m[i][j-1]) + m_n[i][j]$ where $m_n$ is noise matrix.
+
+After values in $m$ are normalized between $+max$ and $-max$ and negated.
+
+Image below shows the noise matrix and the corresponding reduced matrix:
+
+![alt text](images/matrix_gen.png)
