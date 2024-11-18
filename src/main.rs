@@ -120,17 +120,38 @@ fn get_noize_val(x: f64, y: f64, noise_palette: &Vec<Perlin>) -> f64 {
     res
 }
 
-fn gen_matrix(rows: usize, columns: usize) -> (Vec<Vec<i32>>, i32) {
+fn gen_source_matrix(rows: usize, columns: usize) -> Vec<Vec<i32>> {
     let mut matrix = vec![vec![0; columns]; rows];
 
     // Create a noise palette
     let mut noise_palette = Vec::new();
-    let noise_levels = 1;
+    let noise_levels = 8;
     for _ in 0..noise_levels {
         let seed = rand::thread_rng().gen_range(0..1000);
         let noise = Perlin::new(seed);
         noise_palette.push(noise);
     }
+
+    // Decrease values in the matrix
+    for i in 0..rows {
+        for j in 0..columns {
+            let rand_val = get_noize_val(i as f64 / rows as f64, j as f64 / columns as f64, &noise_palette);
+            let threshold = 0.0;
+            let rand_val = if rand_val < threshold { threshold } else { rand_val };
+            let rand_val = (rand_val * 100.0) as i32;
+            matrix[i][j] = rand_val;
+            
+        }
+
+    }
+
+    matrix
+}
+
+fn gen_decreasing_matrix(source_mat: &Vec<Vec<i32>>) -> (Vec<Vec<i32>>, i32) {
+    let rows = source_mat.len();
+    let columns = source_mat[0].len();
+    let mut matrix = vec![vec![0; columns]; rows];
 
     println!("Generating {}x{} matrix", rows, columns);
     let pb = indicatif::ProgressBar::new((rows * columns) as u64);
@@ -141,10 +162,7 @@ fn gen_matrix(rows: usize, columns: usize) -> (Vec<Vec<i32>>, i32) {
     // Decrease values in the matrix
     for i in 0..rows {
         for j in 0..columns {
-            let rand_val = get_noize_val(i as f64 / rows as f64, j as f64 / columns as f64, &noise_palette);
-            let threshold = 0.0;
-            let rand_val = if rand_val < threshold { threshold } else { rand_val };
-            let rand_val = (rand_val * 100.0) as i32;
+            let rand_val = source_mat[i][j];
             if i == 0 && j == 0 {
                 matrix[i][j] = 0;
             } else if i == 0 {
@@ -181,6 +199,11 @@ fn gen_matrix(rows: usize, columns: usize) -> (Vec<Vec<i32>>, i32) {
     }
 
     (matrix, count_neg)
+}
+
+fn gen_matrix(rows: usize, columns: usize) -> (Vec<Vec<i32>>, i32) {
+    let source_mat = gen_source_matrix(rows, columns);
+    gen_decreasing_matrix(&source_mat)
 }
 
 // Evaluate the average sum of the matrix for a given number of steps
@@ -423,58 +446,61 @@ fn measure_time_count_neg_sizes(sizes: &Vec<usize>, segment_sizes: &Vec<usize>, 
         .unwrap();
 }
 
-// How to run with rayon and specify num of threads?
-// RAYON_NUM_THREADS=4 cargo run --release
-
 fn main() {
 
-    measure_time_count_neg_sizes(
-        &vec![1000, 2000, 4000, 8000, 16000, 32000],
-        &vec![500, 1000, 2000, 4000],
-        "count-neg-plot.png",
-        10
-    );
+    // With this parameters it was run in a report
+    // WARNING: This will take a long time to run, if you want
+    // to run it, decrease the number of steps, sizes and segment sizes
+    // measure_time_count_neg_sizes(
+    //     &vec![1000, 2000, 4000, 8000, 16000, 32000],
+    //     &vec![500, 1000, 2000, 4000],
+    //     "count-neg-plot.png",
+    //     10
+    // );
 
-    // let matSize = 100;
-    // let (gen_time, (m, sum_true)) = measure_time(|| {
-    //     gen_matrix(matSize * 10000, matSize)
-    // });
-    // if matSize < 20 {
-    //     display_matrix(&m);
-    // }
-    // println!("Time taken to generate matrix: {:?}", gen_time);
-    // //mat_to_png(&m, "count-neg.png");
 
-    // // Sequential
-    // let mut res_seq = 0;
-    // let (time_seq, _) = measure_time(|| {
-    //     res_seq = count_negatives_seq(&m);
-    // });
+    let mat_size = 1000;
+    let m_source = gen_source_matrix(mat_size, mat_size);
+    let (gen_time, (m, sum_true)) = measure_time(|| {
+        gen_decreasing_matrix(&m_source)
+    });
+    if mat_size < 20 {
+        display_matrix(&m);
+    }
+    println!("Time taken to generate matrix: {:?}", gen_time);
+    mat_to_png(&m_source, "count-neg-source.png");
+    mat_to_png(&m, "count-neg.png");
 
-    // let segment_size = 100;
+    // Sequential
+    let mut res_seq = 0;
+    let (time_seq, _) = measure_time(|| {
+        res_seq = count_negatives_seq(&m);
+    });
 
-    // // Parallel with join
-    // let mut res_par = 0;
-    // let (time_par, _) = measure_time(|| {
-    //     diam::svg("count-neg.svg", || {
-    //         res_par = count_negatives_par(&m, segment_size);
-    //     }).expect("failed saving svg file");
-    // });
+    let segment_size = 100;
 
-    // // Parallel with iterator
-    // let mut res_par_iter = 0;
-    // let (time_par_iter, _) = measure_time(|| {
-    //     res_par_iter = count_negatives_par_iter(&m, segment_size);
-    // });
+    // Parallel with join
+    let mut res_par = 0;
+    let (time_par, _) = measure_time(|| {
+        diam::svg("count-neg.svg", || {
+            res_par = count_negatives_par(&m, segment_size);
+        }).expect("failed saving svg file");
+    });
 
-    // // Print the results and time taken
-    // println!("Number of negatives: {}", sum_true);
-    // println!("Sequential result:   {}", res_seq);
-    // println!("Parallel result:     {}", res_par);
-    // println!("Time taken for sequential:             {:?}", time_seq);
-    // println!("Time taken for parallel:               {:?}", time_par);
-    // println!("Time taken for parallel with iterator: {:?}", time_par_iter);
-    // // Speedup
-    // println!("Speedup:               {}", time_seq.as_secs_f64() / time_par.as_secs_f64());
-    // println!("Speedup with iterator: {}", time_seq.as_secs_f64() / time_par_iter.as_secs_f64());
+    // Parallel with iterator
+    let mut res_par_iter = 0;
+    let (time_par_iter, _) = measure_time(|| {
+        res_par_iter = count_negatives_par_iter(&m, segment_size);
+    });
+
+    // Print the results and time taken
+    println!("Number of negatives: {}", sum_true);
+    println!("Sequential result:   {}", res_seq);
+    println!("Parallel result:     {}", res_par);
+    println!("Time taken for sequential:             {:?}", time_seq);
+    println!("Time taken for parallel:               {:?}", time_par);
+    println!("Time taken for parallel with iterator: {:?}", time_par_iter);
+    // Speedup
+    println!("Speedup:               {}", time_seq.as_secs_f64() / time_par.as_secs_f64());
+    println!("Speedup with iterator: {}", time_seq.as_secs_f64() / time_par_iter.as_secs_f64());
 }
