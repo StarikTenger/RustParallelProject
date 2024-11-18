@@ -143,6 +143,8 @@ Those three different implementations of algorithm (sequential, parallel with jo
 
 On given plot each configuration was tested 10 times and the average time was taken.
 
+Each configuration is verified to be correct.
+
 Due to the hardware limitation the maximum size of the matrix was 32000x32000. For this size the program was consuming about 4GB of RAM and the matrix generation was taking around 30 seconds.
 
 This way it is hard to measure the advantage of parallel version because The algorithm is linear in repsect to the linear size of the matrix.
@@ -172,3 +174,9 @@ After values in $m$ are normalized between $+max$ and $-max$ and negated.
 Image below shows the noise matrix and the corresponding reduced matrix:
 
 ![alt text](images/matrix_gen.png)
+
+In the left picture there is raw perlin noise data with white areas being positive and black  - negative.
+
+In the right picture in positive area white is 0 and black is `max`, in negative area black is 0 and white is $-max$.
+
+> In picture 8-octave perlin noise is shown, while in evaluation only 1-octave noise was used to make generation faster.
