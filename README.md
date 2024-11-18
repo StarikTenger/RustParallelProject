@@ -1,5 +1,16 @@
 # Counting negatives in sorted matrix in parallel
 
+## Running the code
+
+I had a problem running code with plots, [this](https://github.com/plotters-rs/plotters/issues/10) fixed it. I was running on Ubuntu 22.04.
+
+```bash
+sudo apt-get install libfontconfig libfontconfig1-dev
+```
+
+Cargo version: `cargo 1.81.0`
+
+
 ## The problem
 
 The problem on leetcode:
@@ -49,9 +60,40 @@ The better option is to use binary search to find the intersection of frontier w
 
 The time complexity in this scenario is $O(N + M + K \cdot log_2M)$.
 
+![alt text](images/diagram.png)
+
 For a subtask we define function `count_negatives_segment` that calculates the number of negatives in the segment of the matrix.
 
-![alt text](images/diagram.png)
+The code for this function is almost the same as for `count_negatives`, with the difference that the search starts not from bottop-left corner, but from intersection of bottom edge and the frontier (i.e. the first negative number in the row).
+
+```rust
+fn count_negatives_segment(grid: &Vec<Vec<i32>>, begin: usize, end: usize) -> i32 {
+    let rows: usize = grid.len();
+    let columns = if rows > 0 { grid[0].len() } else { 0 };
+    let gap = end - begin;
+    let mut sum : i32 = (gap as i32) * (columns as i32);
+    
+    // Binary search for the first negative number in the row
+    let first_negative = find_first_negative(&grid[end - 1]);
+    if first_negative == -1 { return 0; }
+
+    let mut i : usize = end - 1;
+    let mut j : usize = first_negative as usize;
+
+    loop {
+        while j < columns && grid[i][j] >= 0 {
+            j += 1;
+        }
+        sum -= j as i32;
+
+        if i == begin { break; }
+
+        i -= 1;
+
+    }
+    sum
+}
+```
 
 
 ### With join
@@ -97,7 +139,7 @@ fn count_negatives_par_iter(grid: &Vec<Vec<i32>>, segment_size: usize) -> i32 {
 
 ### Evaluation
 
-Different implementations of algorithms were tested on set of square matricies of different sizes. Also different block sizes were used. The results are presented on the plot below.
+Those three different implementations of algorithm (sequential, parallel with join, parallel with itarators) were tested on set of square matricies of different sizes. Also different block sizes were used. The results are presented on the plot below.
 
 On given plot each configuration was tested 10 times and the average time was taken.
 
@@ -105,7 +147,9 @@ Due to the hardware limitation the maximum size of the matrix was 32000x32000. F
 
 This way it is hard to measure the advantage of parallel version because The algorithm is linear in repsect to the linear size of the matrix.
 
-However it can be clearly seen that the parallel version with iterators is performing better than the one with join.
+However it is evident that after the size of 8000-16000 the parallel versions become faster than sequential. And it can be clearly seen that the parallel version with iterators is performing better than the one with join.
+
+Changing the size of the block does not seem to affect the result. This may be due to not enough size of the matrix.
 
 ![](images/count-neg-plot.png)
 
